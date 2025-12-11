@@ -18,11 +18,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copiar archivos de configuracion del proyecto
 COPY pyproject.toml README.md ./
 
+# Copiar codigo fuente (necesario para que hatchling construya el wheel)
+COPY app/ ./app/
+
 # Instalar dependencias de Python
 RUN pip install --no-cache-dir .
-
-# Copiar codigo fuente
-COPY app/ ./app/
 
 # Crear directorio de datos (modelos se montan como volumen en produccion)
 RUN mkdir -p ./data
