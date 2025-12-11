@@ -20,7 +20,7 @@ from app.models.schemas import (
     WeatherInput,
 )
 from app.services.gbfs import gbfs_service
-from app.services.history import WeekdayName, history_service
+from app.services.history import history_service
 from app.services.lags import lags_service
 from app.services.predictor import predictor_service
 
@@ -234,6 +234,9 @@ async def get_history_today(station_code: str) -> Response:
 async def get_history_average(station_code: str) -> Response:
     """
     Obtiene el promedio de disponibilidad de los ultimos 30 dias.
+    
+    Calcula promedios separados para dias entre semana (lunes-viernes)
+    y fines de semana (sabado-domingo).
 
     Args:
         station_code: Codigo de la estacion (ej: "001", "123")
@@ -241,11 +244,16 @@ async def get_history_average(station_code: str) -> Response:
     Returns:
         Archivo parquet con promedios por hora del dia:
         - time_of_day: Hora del dia (cada 10 min)
-        - avg_bikes: Promedio de bicicletas disponibles
-        - std_bikes: Desviacion estandar
-        - min_bikes: Minimo observado
-        - max_bikes: Maximo observado
-        - sample_count: Numero de observaciones
+        - avg_bikes_weekday: Promedio de bicicletas disponibles en dias entre semana
+        - std_bikes_weekday: Desviacion estandar en dias entre semana
+        - min_bikes_weekday: Minimo observado en dias entre semana
+        - max_bikes_weekday: Maximo observado en dias entre semana
+        - sample_count_weekday: Numero de observaciones en dias entre semana
+        - avg_bikes_weekend: Promedio de bicicletas disponibles en fin de semana
+        - std_bikes_weekend: Desviacion estandar en fin de semana
+        - min_bikes_weekend: Minimo observado en fin de semana
+        - max_bikes_weekend: Maximo observado en fin de semana
+        - sample_count_weekend: Numero de observaciones en fin de semana
     """
     try:
         df = await history_service.get_average(station_code)
@@ -256,55 +264,10 @@ async def get_history_average(station_code: str) -> Response:
                 detail=f"No se encontraron datos para la estacion {station_code}",
             )
 
-        return _df_to_parquet_response(df, f"{station_code}_average_all.parquet")
+        return _df_to_parquet_response(df, f"{station_code}_average_weekly.parquet")
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error al obtener average para {station_code}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error interno: {e}")
-
-
-@router.get(
-    "/history/{station_code}/average/{weekday}",
-    responses={
-        404: {"model": ErrorResponse, "description": "Estacion o datos no encontrados"},
-    },
-)
-async def get_history_average_weekday(
-    station_code: str,
-    weekday: WeekdayName,
-) -> Response:
-    """
-    Obtiene el promedio de disponibilidad para un dia de semana especifico.
-
-    Args:
-        station_code: Codigo de la estacion (ej: "001", "123")
-        weekday: Dia de la semana (monday, tuesday, wednesday, thursday,
-                 friday, saturday, sunday)
-
-    Returns:
-        Archivo parquet con promedios por hora del dia:
-        - time_of_day: Hora del dia (cada 10 min)
-        - avg_bikes: Promedio de bicicletas disponibles
-        - std_bikes: Desviacion estandar
-        - min_bikes: Minimo observado
-        - max_bikes: Maximo observado
-        - sample_count: Numero de observaciones
-    """
-    try:
-        df = await history_service.get_average(station_code, weekday=weekday)
-
-        if df is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No se encontraron datos para la estacion {station_code} en {weekday}",
-            )
-
-        return _df_to_parquet_response(df, f"{station_code}_average_{weekday}.parquet")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error al obtener average {weekday} para {station_code}: {e}")
         raise HTTPException(status_code=500, detail=f"Error interno: {e}")

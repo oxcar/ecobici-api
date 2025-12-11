@@ -79,13 +79,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Configurar CORS
+    # Configurar CORS - solo permitir peticiones desde dominios autorizados
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # En produccion, especificar dominios permitidos
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "Authorization"],
     )
 
     # Middleware de estadisticas

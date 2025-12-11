@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # CORS (dominios permitidos para hacer peticiones a la API)
+    cors_origins: list[str] = ["https://ecobici.cc", "https://www.ecobici.cc"]
+
     # API
     api_title: str = "Ecobici Prediction API"
     api_version: str = "0.1.0"

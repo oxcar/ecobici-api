@@ -22,21 +22,6 @@ logger = logging.getLogger(__name__)
 # Timezone de Ciudad de Mexico
 CDMX_TZ = ZoneInfo("America/Mexico_City")
 
-# Mapeo de nombres de dias en ingles
-WEEKDAY_MAP = {
-    "monday": 0,
-    "tuesday": 1,
-    "wednesday": 2,
-    "thursday": 3,
-    "friday": 4,
-    "saturday": 5,
-    "sunday": 6,
-}
-
-WeekdayName = Literal[
-    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-]
-
 
 class HistoryService:
     """Servicio para gestionar historicos y cache de estaciones."""
@@ -109,6 +94,35 @@ class HistoryService:
             pl.col("docks_available").last(),
             pl.col("docks_disabled").last(),
         ]).sort("snapshot_time")
+
+        # Rellenar huecos en la serie temporal con ceros
+        if not df_result.is_empty():
+            # Obtener rango completo de tiempos
+            min_time = df_result["snapshot_time"].min()
+            max_time = df_result["snapshot_time"].max()
+            
+            # Crear serie temporal completa con intervalos de 10 minutos
+            full_range = pl.datetime_range(
+                min_time,
+                max_time,
+                interval="10m",
+                eager=True,
+            ).alias("snapshot_time")
+            
+            # Crear DataFrame con el rango completo
+            df_full = pl.DataFrame({"snapshot_time": full_range})
+            
+            # Hacer join y rellenar huecos con ceros
+            df_result = df_full.join(df_result, on="snapshot_time", how="left")
+            
+            # Rellenar valores faltantes: capacity con el ultimo valor conocido, resto con 0
+            df_result = df_result.with_columns([
+                pl.col("capacity").forward_fill().fill_null(0),
+                pl.col("bikes_available").fill_null(0),
+                pl.col("bikes_disabled").fill_null(0),
+                pl.col("docks_available").fill_null(0),
+                pl.col("docks_disabled").fill_null(0),
+            ])
 
         return df_result
 
@@ -198,32 +212,32 @@ class HistoryService:
     async def get_average(
         self,
         station_code: str,
-        weekday: Optional[WeekdayName] = None,
     ) -> Optional[pl.DataFrame]:
         """
         Calcula promedios de disponibilidad para una estacion.
+        
+        Calcula promedios separados para dias entre semana (lunes-viernes)
+        y fines de semana (sabado-domingo).
 
         Parametros
         ----------
         station_code : str
             Codigo de la estacion
-        weekday : str | None
-            Dia de la semana (monday, tuesday, etc.) o None para todos
 
         Retorna
         -------
         DataFrame | None
-            DataFrame con promedios por hora, o None si no hay datos
+            DataFrame con promedios por hora del dia con columnas separadas
+            para dias entre semana y fin de semana, o None si no hay datos
         """
         today = datetime.now(CDMX_TZ)
         today_str = today.strftime("%Y_%m_%d")
 
         # Verificar cache (TTL 24 horas)
-        cache_suffix = weekday if weekday else "all"
-        cache_file = self.cache_dir / "averages" / today_str / f"{station_code}_{cache_suffix}.parquet"
+        cache_file = self.cache_dir / "averages" / today_str / f"{station_code}_weekly.parquet"
 
         if cache_file.exists():
-            logger.debug(f"Cache hit: average {station_code} {cache_suffix}")
+            logger.debug(f"Cache hit: average {station_code} weekly")
             return pl.read_parquet(cache_file)
 
         # Obtener station_id
@@ -231,14 +245,13 @@ class HistoryService:
         if not station_id:
             return None
 
-        # Recolectar datos de los ultimos 30 dias
-        all_data = []
+        # Recolectar datos de los ultimos 30 dias separando por tipo de dia
+        weekday_data = []
+        weekend_data = []
+        
         for days_ago in range(1, 31):
             check_date = today - timedelta(days=days_ago)
-
-            # Filtrar por dia de semana si se especifica
-            if weekday and check_date.weekday() != WEEKDAY_MAP[weekday]:
-                continue
+            weekday_num = check_date.weekday()
 
             parquet_path = self._get_parquet_path(check_date)
             if parquet_path:
@@ -246,35 +259,61 @@ class HistoryService:
                     df = pl.read_parquet(parquet_path)
                     df_station = df.filter(pl.col("station_id") == station_id)
                     if not df_station.is_empty():
-                        all_data.append(df_station)
+                        # Clasificar: lunes-viernes (0-4) = entre semana, sabado-domingo (5-6) = fin de semana
+                        if weekday_num < 5:
+                            weekday_data.append(df_station)
+                        else:
+                            weekend_data.append(df_station)
                 except Exception as e:
                     logger.warning(f"Error al leer {parquet_path}: {e}")
 
-        if not all_data:
+        if not weekday_data and not weekend_data:
             return None
 
-        # Concatenar todos los datos
-        df_all = pl.concat(all_data)
+        # Procesar datos de dias entre semana
+        df_weekday = None
+        if weekday_data:
+            df_weekday_concat = pl.concat(weekday_data)
+            df_weekday_concat = df_weekday_concat.with_columns([
+                pl.col("snapshot_time").dt.convert_time_zone("America/Mexico_City").dt.truncate("10m").dt.time().alias("time_of_day"),
+                pl.col("bikes_available").cast(pl.Float64),
+            ])
+            df_weekday = df_weekday_concat.group_by("time_of_day").agg([
+                pl.col("bikes_available").mean().round(1).alias("avg_bikes_weekday"),
+                pl.col("bikes_available").std().round(1).alias("std_bikes_weekday"),
+                pl.col("bikes_available").min().alias("min_bikes_weekday"),
+                pl.col("bikes_available").max().alias("max_bikes_weekday"),
+                pl.col("bikes_available").count().alias("sample_count_weekday"),
+            ])
 
-        # Convertir snapshot_time de UTC a hora de Mexico antes de extraer la hora del dia
-        df_all = df_all.with_columns([
-            pl.col("snapshot_time").dt.convert_time_zone("America/Mexico_City").dt.truncate("10m").dt.time().alias("time_of_day"),
-            pl.col("bikes_available").cast(pl.Float64),
-        ])
+        # Procesar datos de fin de semana
+        df_weekend = None
+        if weekend_data:
+            df_weekend_concat = pl.concat(weekend_data)
+            df_weekend_concat = df_weekend_concat.with_columns([
+                pl.col("snapshot_time").dt.convert_time_zone("America/Mexico_City").dt.truncate("10m").dt.time().alias("time_of_day"),
+                pl.col("bikes_available").cast(pl.Float64),
+            ])
+            df_weekend = df_weekend_concat.group_by("time_of_day").agg([
+                pl.col("bikes_available").mean().round(1).alias("avg_bikes_weekend"),
+                pl.col("bikes_available").std().round(1).alias("std_bikes_weekend"),
+                pl.col("bikes_available").min().alias("min_bikes_weekend"),
+                pl.col("bikes_available").max().alias("max_bikes_weekend"),
+                pl.col("bikes_available").count().alias("sample_count_weekend"),
+            ])
 
-        # Calcular estadisticas por hora del dia
-        df_avg = df_all.group_by("time_of_day").agg([
-            pl.col("bikes_available").mean().round(1).alias("avg_bikes"),
-            pl.col("bikes_available").std().round(1).alias("std_bikes"),
-            pl.col("bikes_available").min().alias("min_bikes"),
-            pl.col("bikes_available").max().alias("max_bikes"),
-            pl.col("bikes_available").count().alias("sample_count"),
-        ]).sort("time_of_day")
+        # Combinar ambos DataFrames mediante join por time_of_day
+        if df_weekday is not None and df_weekend is not None:
+            df_avg = df_weekday.join(df_weekend, on="time_of_day", how="outer").sort("time_of_day")
+        elif df_weekday is not None:
+            df_avg = df_weekday.sort("time_of_day")
+        else:
+            df_avg = df_weekend.sort("time_of_day")
 
         # Guardar en cache
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         df_avg.write_parquet(cache_file, compression="snappy")
-        logger.debug(f"Cache guardado: average {station_code} {cache_suffix}")
+        logger.debug(f"Cache guardado: average {station_code} weekly")
 
         return df_avg
 
