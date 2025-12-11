@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar archivos de dependencias
-COPY pyproject.toml .
+# Copiar archivos de configuracion del proyecto
+COPY pyproject.toml README.md ./
 
 # Instalar dependencias de Python
 RUN pip install --no-cache-dir .
