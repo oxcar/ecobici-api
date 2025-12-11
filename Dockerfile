@@ -21,6 +21,9 @@ COPY pyproject.toml README.md ./
 # Copiar codigo fuente (necesario para que hatchling construya el wheel)
 COPY app/ ./app/
 
+# Instalar PyTorch CPU-only desde indice especifico (reduce imagen de 4GB a 600MB)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
 # Instalar dependencias de Python
 RUN pip install --no-cache-dir .
 
