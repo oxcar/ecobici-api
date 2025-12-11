@@ -6,10 +6,10 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - .env.production
     volumes:
-      # Datos persistentes (modelos, estadisticas y snapshots GBFS)
-      - ./data:/app/data
+      # Directorio base de datos (contiene models, gbfs, statistics, cache)
+      - /var/lib/ecobici/data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s

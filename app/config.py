@@ -20,10 +20,29 @@ class Settings(BaseSettings):
         extra="ignore",  # Ignorar variables de entorno extra
     )
 
-    # Rutas (relativas al directorio de la API)
-    models_path: Path = API_BASE_DIR / "data" / "models"
+    # Directorio base de datos (se configura via DATA_PATH)
     data_path: Path = API_BASE_DIR / "data"
-    statistics_path: Path = API_BASE_DIR / "data" / "statistics"
+
+    # Propiedades derivadas del data_path
+    @property
+    def models_path(self) -> Path:
+        """Ruta a los modelos."""
+        return self.data_path / "models"
+
+    @property
+    def statistics_path(self) -> Path:
+        """Ruta a las estadisticas."""
+        return self.data_path / "statistics"
+
+    @property
+    def gbfs_snapshots_path(self) -> Path:
+        """Ruta a los snapshots GBFS."""
+        return self.data_path / "gbfs"
+
+    @property
+    def cache_path(self) -> Path:
+        """Ruta al cache."""
+        return self.data_path / "cache"
 
     # GBFS API
     gbfs_base_url: str = "https://gbfs.mex.lyftbikes.com/gbfs"
@@ -31,7 +50,6 @@ class Settings(BaseSettings):
 
     # GBFS Collector
     gbfs_collector_enabled: bool = True
-    gbfs_snapshots_path: Path = API_BASE_DIR / "data" / "gbfs"
 
     # Open-Meteo API
     openmeteo_base_url: str = "https://api.open-meteo.com/v1"
