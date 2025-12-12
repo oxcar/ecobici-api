@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.services.collector import gbfs_collector
 from app.services.history import history_service
 from app.services.predictor import predictor_service
+from app.services.scheduler import shutdown_scheduler, start_scheduler
 from app.services.statistics import StatisticsMiddleware, statistics_service
 
 # Configurar logging
@@ -54,10 +55,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await gbfs_collector.start()
         logger.info(f"Colector GBFS iniciado. Ruta: {settings.gbfs_snapshots_path}")
 
+    # Iniciar scheduler de tareas programadas
+    start_scheduler()
+    logger.info("Scheduler de tareas programadas iniciado")
+
     yield
 
     # Shutdown
     logger.info("Cerrando aplicacion...")
+
+    # Detener scheduler
+    shutdown_scheduler()
+    logger.info("Scheduler detenido")
 
     # Detener colector GBFS si esta habilitado
     if settings.gbfs_collector_enabled:
