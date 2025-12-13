@@ -3,22 +3,27 @@ Rutas de la API.
 """
 
 import logging
+import time
+from collections import defaultdict
 from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
 import polars as pl
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
 from app.models.schemas import (
     ErrorResponse,
+    FeedbackInput,
+    FeedbackResponse,
     HealthResponse,
     Predictions,
     PredictionResponse,
     WeatherData,
     WeatherInput,
 )
+from app.services.feedback import feedback_service
 from app.services.gbfs import gbfs_service
 from app.services.history import history_service
 from app.services.lags import lags_service
@@ -28,6 +33,11 @@ logger = logging.getLogger(__name__)
 
 # Timezone de Ciudad de Mexico
 CDMX_TZ = ZoneInfo("America/Mexico_City")
+
+# Rate limiting para feedback: maximo 5 peticiones por minuto por IP
+feedback_rate_limit = defaultdict(list)
+FEEDBACK_MAX_REQUESTS = 5
+FEEDBACK_WINDOW_SECONDS = 60
 
 router = APIRouter()
 
@@ -270,4 +280,61 @@ async def get_history_average(station_code: str) -> Response:
         raise
     except Exception as e:
         logger.error(f"Error al obtener average para {station_code}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {e}")
+
+
+@router.post(
+    "/feedback",
+    response_model=FeedbackResponse,
+    responses={
+        429: {"model": ErrorResponse, "description": "Demasiadas peticiones"},
+        500: {"model": ErrorResponse, "description": "Error interno"},
+    },
+)
+async def submit_feedback(request: Request, feedback: FeedbackInput) -> FeedbackResponse:
+    """
+    Recibe feedback de usuarios.
+
+    Limites:
+    - Maximo 5 peticiones por minuto por IP
+    - Texto limitado a 250 caracteres
+
+    Args:
+        request: Request object para obtener IP del cliente
+        feedback: Datos de feedback con thumb (valoracion) y text (comentario)
+
+    Returns:
+        Confirmacion de que el feedback fue guardado.
+    """
+    # Rate limiting por IP
+    client_ip = request.client.host if request.client else "unknown"
+    current_time = time.time()
+    
+    # Limpiar requests antiguos
+    feedback_rate_limit[client_ip] = [
+        req_time for req_time in feedback_rate_limit[client_ip]
+        if current_time - req_time < FEEDBACK_WINDOW_SECONDS
+    ]
+    
+    # Verificar limite
+    if len(feedback_rate_limit[client_ip]) >= FEEDBACK_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Demasiadas peticiones. Maximo {FEEDBACK_MAX_REQUESTS} por minuto.",
+        )
+    
+    # Registrar esta peticion
+    feedback_rate_limit[client_ip].append(current_time)
+    
+    try:
+        now = datetime.now(CDMX_TZ)
+        feedback_service.save_feedback(thumb=feedback.thumb, text=feedback.text)
+
+        return FeedbackResponse(
+            message="Feedback recibido correctamente",
+            timestamp=now,
+        )
+
+    except Exception as e:
+        logger.error(f"Error al guardar feedback: {e}")
         raise HTTPException(status_code=500, detail=f"Error interno: {e}")

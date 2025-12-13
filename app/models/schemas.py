@@ -98,7 +98,20 @@ class HistoryRecord(BaseModel):
     num_bikes_available: int = Field(..., description="Bicicletas disponibles")
     num_bikes_disabled: int = Field(..., description="Bicicletas deshabilitadas")
     num_docks_available: int = Field(..., description="Docks disponibles")
-    num_docks_disabled: int = Field(..., description="Docks deshabilitados")
+
+
+class FeedbackInput(BaseModel):
+    """Datos de entrada para feedback."""
+
+    thumb: str | None = Field(None, description="Valoracion con pulgar")
+    text: str | None = Field(None, max_length=250, description="Comentario del usuario (max 250 caracteres)")
+
+
+class FeedbackResponse(BaseModel):
+    """Respuesta al guardar feedback."""
+
+    message: str = Field(..., description="Mensaje de confirmacion")
+    timestamp: datetime = Field(..., description="Timestamp del feedback")
 
 
 class HistoryResponse(BaseModel):
