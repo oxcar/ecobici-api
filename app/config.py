@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     api_title: str = "Ecobici Prediction API"
     api_version: str = "0.1.0"
     api_description: str = "API de prediccion de disponibilidad de bicicletas Ecobici CDMX"
+    docs_enabled: bool = False
 
 
 @lru_cache

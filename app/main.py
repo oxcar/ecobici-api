@@ -86,6 +86,8 @@ def create_app() -> FastAPI:
         version=settings.api_version,
         description=settings.api_description,
         lifespan=lifespan,
+        docs_url="/docs" if settings.docs_enabled else None,
+        redoc_url="/redoc" if settings.docs_enabled else None,
     )
 
     # Configurar CORS - solo permitir peticiones desde dominios autorizados
