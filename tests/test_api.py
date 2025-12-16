@@ -28,16 +28,6 @@ async def test_root(client: AsyncClient):
     assert "version" in data
 
 
-@pytest.mark.asyncio
-async def test_health(client: AsyncClient):
-    """Test del health check."""
-    response = await client.get("/api/v1/health")
-    assert response.status_code == 200
-    data = response.json()
-    assert "status" in data
-    assert "models_loaded" in data
-    assert "gbfs_available" in data
-
 
 @pytest.mark.asyncio
 async def test_stations_list(client: AsyncClient):

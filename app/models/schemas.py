@@ -75,13 +75,7 @@ class StationInfo(BaseModel):
     capacity: int
 
 
-class HealthResponse(BaseModel):
-    """Respuesta del health check."""
 
-    status: str = Field(..., description="Estado del servicio")
-    timestamp: datetime = Field(..., description="Timestamp")
-    models_loaded: bool = Field(..., description="Modelos cargados")
-    gbfs_available: bool = Field(..., description="GBFS disponible")
 
 
 class ErrorResponse(BaseModel):

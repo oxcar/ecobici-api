@@ -17,7 +17,6 @@ from app.models.schemas import (
     ErrorResponse,
     FeedbackInput,
     FeedbackResponse,
-    HealthResponse,
     Predictions,
     PredictionResponse,
     WeatherData,
@@ -42,21 +41,7 @@ FEEDBACK_WINDOW_SECONDS = 60
 router = APIRouter()
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
-    """
-    Health check del servicio.
 
-    Verifica que los modelos esten cargados y que GBFS este disponible.
-    """
-    gbfs_available = await gbfs_service.is_available()
-
-    return HealthResponse(
-        status="healthy" if predictor_service.is_loaded and gbfs_available else "degraded",
-        timestamp=datetime.now(CDMX_TZ),
-        models_loaded=predictor_service.is_loaded,
-        gbfs_available=gbfs_available,
-    )
 
 
 @router.post(

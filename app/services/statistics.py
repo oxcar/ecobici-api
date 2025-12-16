@@ -197,7 +197,7 @@ class StatisticsMiddleware(BaseHTTPMiddleware):
     """Middleware para registrar estadisticas de cada peticion."""
 
     # Rutas a excluir del registro
-    EXCLUDED_PATHS = {"/", "/docs", "/openapi.json", "/redoc", "/favicon.ico", "/health"}
+    EXCLUDED_PATHS = {"/", "/docs", "/openapi.json", "/redoc", "/favicon.ico"}
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
