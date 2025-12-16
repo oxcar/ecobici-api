@@ -1,24 +1,20 @@
 """
 Servicio de prediccion con modelos entrenados.
 
-Soporta dos tipos de modelos:
-- m1: XGBoost (modelos tradicionales de ML)
-- m2: LSTM (modelos de deep learning)
+Utiliza modelos XGBoost para prediccion en tres horizontes temporales.
 """
 
 import logging
 import math
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import joblib
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
-
-ModelType = Literal["m1", "m2"]
 
 
 class PredictorService:
@@ -27,23 +23,17 @@ class PredictorService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.models_path = self.settings.models_path
-        self._xgboost_models: dict[str, Any] = {}  # m1
-        self._lstm_model: Any = None  # m2
-        self._lstm_scaler: Any = None
-        self._lstm_config: dict[str, Any] = {}
+        self._xgboost_models: dict[str, Any] = {}
         self._models_loaded = False
 
     def load_models(self) -> bool:
         """
-        Carga los modelos de prediccion (XGBoost y LSTM).
+        Carga los modelos de prediccion XGBoost.
 
         Returns:
-            True si al menos un tipo de modelo se cargo correctamente.
+            True si los modelos se cargaron correctamente.
         """
-        xgboost_loaded = self._load_xgboost_models()
-        lstm_loaded = self._load_lstm_model()
-
-        self._models_loaded = xgboost_loaded or lstm_loaded
+        self._models_loaded = self._load_xgboost_models()
         return self._models_loaded
 
     def _load_xgboost_models(self) -> bool:
@@ -72,91 +62,6 @@ class PredictorService:
         except Exception as e:
             logger.error(f"Error al cargar modelos XGBoost: {e}")
             return False
-
-    def _load_lstm_model(self) -> bool:
-        """Carga el modelo LSTM (m2)."""
-        lstm_path = self.models_path / "lstm"
-
-        try:
-            model_path = lstm_path / "model.pth"
-            config_path = lstm_path / "model_config.pkl"
-            scaler_path = lstm_path / "scaler.pkl"
-
-            if not all(p.exists() for p in [model_path, config_path, scaler_path]):
-                logger.warning(f"Archivos LSTM incompletos en {lstm_path}")
-                return False
-
-            # Cargar configuracion y scaler
-            self._lstm_config = joblib.load(config_path)
-            self._lstm_scaler = joblib.load(scaler_path)
-
-            # Cargar modelo PyTorch (lazy import para evitar dependencia si no se usa)
-            try:
-                import torch
-
-                # Reconstruir modelo desde config
-                self._lstm_model = self._build_lstm_model(self._lstm_config)
-                
-                # Cargar checkpoint (puede ser state_dict o checkpoint completo)
-                checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-                
-                # Si es un checkpoint completo, extraer model_state_dict
-                if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-                    self._lstm_model.load_state_dict(checkpoint["model_state_dict"])
-                else:
-                    self._lstm_model.load_state_dict(checkpoint)
-                
-                self._lstm_model.eval()
-                logger.info("Modelo LSTM cargado correctamente")
-                return True
-
-            except ImportError:
-                logger.warning("PyTorch no instalado, modelo LSTM no disponible")
-                return False
-
-        except Exception as e:
-            logger.error(f"Error al cargar modelo LSTM: {e}")
-            return False
-
-    def _build_lstm_model(self, config: dict[str, Any]) -> Any:
-        """Construye el modelo LSTM desde la configuracion."""
-        import torch
-        import torch.nn as nn
-
-        class LSTMModel(nn.Module):
-            def __init__(self, input_size: int, hidden_size: int, num_layers: int, output_size: int, dropout: float = 0.2):
-                super().__init__()
-                self.hidden_size = hidden_size
-                self.num_layers = num_layers
-
-                self.lstm = nn.LSTM(
-                    input_size=input_size,
-                    hidden_size=hidden_size,
-                    num_layers=num_layers,
-                    batch_first=True,
-                    dropout=dropout if num_layers > 1 else 0,
-                )
-                # Dos capas fully connected
-                self.fc1 = nn.Linear(hidden_size, hidden_size // 2)
-                self.fc2 = nn.Linear(hidden_size // 2, output_size)
-                self.relu = nn.ReLU()
-                self.dropout = nn.Dropout(dropout)
-
-            def forward(self, x):
-                lstm_out, _ = self.lstm(x)
-                out = self.fc1(lstm_out[:, -1, :])
-                out = self.relu(out)
-                out = self.dropout(out)
-                out = self.fc2(out)
-                return out
-
-        return LSTMModel(
-            input_size=config.get("input_size", 35),
-            hidden_size=config.get("hidden_size", 128),
-            num_layers=config.get("num_layers", 2),
-            output_size=config.get("output_size", 3),
-            dropout=config.get("dropout", 0.2),
-        )
 
     @property
     def is_loaded(self) -> bool:
@@ -290,6 +195,10 @@ class PredictorService:
             float(lags.get("num_bikes_available_lag_12") or station_data.get("num_bikes_available", 0)),
             float(lags.get("num_bikes_available_lag_144") or station_data.get("num_bikes_available", 0)),
         ]
+        
+        # Log de debug para verificar variedad en features
+        logger.debug(f"Features construidas - Lags: {features[-6:]}")
+        logger.debug(f"Features completas (primeras 10): {features[:10]}")
 
         return features
 
@@ -300,10 +209,9 @@ class PredictorService:
         lags: dict[str, int | None],
         timestamp: datetime | None = None,
         is_holiday: bool = False,
-        model_type: ModelType = "m1",
     ) -> dict[str, int]:
         """
-        Realiza predicciones para los tres horizontes.
+        Realiza predicciones para los tres horizontes usando XGBoost.
 
         Args:
             station_data: Datos de la estacion
@@ -311,7 +219,6 @@ class PredictorService:
             lags: Lags historicos
             timestamp: Timestamp de la prediccion
             is_holiday: Si es dia festivo
-            model_type: Tipo de modelo a usar ("m1"=XGBoost, "m2"=LSTM)
 
         Returns:
             Diccionario con predicciones para 20, 40 y 60 minutos.
@@ -331,11 +238,7 @@ class PredictorService:
         )
 
         capacity = int(station_data.get("capacity", 20))
-
-        if model_type == "m2" and self._lstm_model is not None:
-            return self._predict_lstm(features, capacity)
-        else:
-            return self._predict_xgboost(features, capacity, station_data)
+        return self._predict_xgboost(features, capacity, station_data)
 
     def _predict_xgboost(
         self,
@@ -346,70 +249,39 @@ class PredictorService:
         """Realiza prediccion con modelos XGBoost (m1)."""
         X = [features]
         predictions = {}
+        
+        logger.debug(f"Prediccion XGBoost - Modelos disponibles: {list(self._xgboost_models.keys())}")
+        logger.debug(f"Features (primeras 10): {features[:10]}")
+        logger.debug(f"Features (ultimas 6 - lags): {features[-6:]}")
 
         for horizon in ["20", "40", "60"]:
             if horizon in self._xgboost_models:
                 try:
                     pred = self._xgboost_models[horizon].predict(X)[0]
                     pred_clamped = max(0, min(int(round(pred)), capacity))
+                    
+                    logger.info(
+                        f"Prediccion {horizon}min - Raw: {pred:.2f}, Clamped: {pred_clamped}, "
+                        f"Capacity: {capacity}, Current: {station_data.get('num_bikes_available', 0)}"
+                    )
+                    
                     predictions[f"bikes_{horizon}min"] = pred_clamped
                 except Exception as e:
                     logger.error(f"Error en prediccion XGBoost {horizon}min: {e}")
-                    predictions[f"bikes_{horizon}min"] = int(
-                        station_data.get("num_bikes_available", 0)
-                    )
+                    current = int(station_data.get("num_bikes_available", 0))
+                    predictions[f"bikes_{horizon}min"] = current
+                    logger.warning(f"Usando valor actual como fallback: {current}")
             else:
+                logger.warning(f"Modelo XGBoost {horizon}min no disponible")
                 predictions[f"bikes_{horizon}min"] = int(
                     station_data.get("num_bikes_available", 0)
                 )
 
         return predictions
 
-    def _predict_lstm(self, features: list[float], capacity: int) -> dict[str, int]:
-        """Realiza prediccion con modelo LSTM (m2)."""
-        import numpy as np
-        import torch
-
-        try:
-            # Escalar features
-            features_array = np.array(features).reshape(1, -1)
-            features_scaled = self._lstm_scaler.transform(features_array)
-
-            # Preparar input para LSTM (batch, seq_len, features)
-            # Usamos seq_len=1 para prediccion en tiempo real
-            X = torch.FloatTensor(features_scaled).unsqueeze(1)
-
-            # Prediccion
-            with torch.no_grad():
-                output = self._lstm_model(X)
-                preds = output.numpy()[0]  # [pred_20, pred_40, pred_60]
-
-            # Clampear predicciones
-            predictions = {
-                "bikes_20min": max(0, min(int(round(preds[0])), capacity)),
-                "bikes_40min": max(0, min(int(round(preds[1])), capacity)),
-                "bikes_60min": max(0, min(int(round(preds[2])), capacity)),
-            }
-
-            return predictions
-
-        except Exception as e:
-            logger.error(f"Error en prediccion LSTM: {e}")
-            # Fallback: retornar valor actual (ultimo conocido de features)
-            current_bikes = int(features[0])  # num_bikes_available es el primer feature
-            return {
-                "bikes_20min": current_bikes,
-                "bikes_40min": current_bikes,
-                "bikes_60min": current_bikes,
-            }
-
-    def is_model_available(self, model_type: ModelType) -> bool:
-        """Verifica si un tipo de modelo esta disponible."""
-        if model_type == "m1":
-            return len(self._xgboost_models) > 0
-        elif model_type == "m2":
-            return self._lstm_model is not None
-        return False
+    def is_model_available(self) -> bool:
+        """Verifica si los modelos XGBoost estan disponibles."""
+        return len(self._xgboost_models) > 0
 
 
 # Instancia singleton del servicio

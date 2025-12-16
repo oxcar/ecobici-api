@@ -41,7 +41,10 @@ FEEDBACK_WINDOW_SECONDS = 60
 router = APIRouter()
 
 
-
+@router.get("/health")
+async def health():
+    """Endpoint de salud del servicio."""
+    return {"status": "ok"}
 
 
 @router.post(
