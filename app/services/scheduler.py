@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -152,26 +153,28 @@ def start_scheduler() -> None:
     - 00:05 hrs: Precalcular datos del dia anterior
     - 00:30 hrs: Precalcular promedios historicos
     """
-    # Programar tarea de yesterday a las 00:05 hrs todos los dias
+    mexico_tz = pytz.timezone('America/Mexico_City')
+    
+    # Programar tarea de yesterday a las 01:00 hrs todos los dias
     scheduler.add_job(
         precalculate_yesterday_data,
-        CronTrigger(hour=0, minute=5),
+        CronTrigger(hour=1, minute=0, timezone=mexico_tz),
         id="precalculate_yesterday",
         name="Precalcular datos del dia anterior",
         replace_existing=True,
     )
     
-    # Programar tarea de averages a las 00:30 hrs todos los dias
+    # Programar tarea de averages a las 01:30 hrs todos los dias
     scheduler.add_job(
         precalculate_averages,
-        CronTrigger(hour=0, minute=30),
+        CronTrigger(hour=1, minute=30, timezone=mexico_tz),
         id="precalculate_averages",
         name="Precalcular promedios historicos",
         replace_existing=True,
     )
     
     scheduler.start()
-    logger.info("Scheduler iniciado - Tareas programadas: 00:05 (yesterday), 00:30 (averages)")
+    logger.info("Scheduler iniciado con zona horaria America/Mexico_City - Tareas: 00:05 (yesterday), 00:30 (averages)")
 
 
 def shutdown_scheduler() -> None:

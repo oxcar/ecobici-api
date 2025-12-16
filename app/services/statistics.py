@@ -197,7 +197,7 @@ class StatisticsMiddleware(BaseHTTPMiddleware):
     """Middleware para registrar estadisticas de cada peticion."""
 
     # Rutas a excluir del registro
-    EXCLUDED_PATHS = {"/", "/docs", "/openapi.json", "/redoc", "/favicon.ico"}
+    EXCLUDED_PATHS = {"/", "/docs", "/openapi.json", "/redoc", "/favicon.ico", "/health"}
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
@@ -226,9 +226,20 @@ class StatisticsMiddleware(BaseHTTPMiddleware):
 
         # Extraer codigo de estacion de la ruta si existe
         station_code = None
-        path_parts = request.url.path.split("/")
-        if len(path_parts) >= 4 and path_parts[-2] in ("stations", "history", "predict"):
-            station_code = path_parts[-1]
+        path_parts = request.url.path.strip("/").split("/")
+        
+        if "stations" in path_parts and len(path_parts) >= 2:
+            station_index = path_parts.index("stations")
+            if station_index + 1 < len(path_parts):
+                station_code = str(path_parts[station_index + 1])
+        elif "history" in path_parts and len(path_parts) >= 2:
+            history_index = path_parts.index("history")
+            if history_index + 1 < len(path_parts):
+                station_code = str(path_parts[history_index + 1])
+        elif "predict" in path_parts and len(path_parts) >= 2:
+            predict_index = path_parts.index("predict")
+            if predict_index + 1 < len(path_parts):
+                station_code = str(path_parts[predict_index + 1])
 
         # Obtener IP del cliente
         client_ip = request.client.host if request.client else None
