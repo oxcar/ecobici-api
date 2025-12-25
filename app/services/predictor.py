@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 CDMX_TZ = pytz.timezone("America/Mexico_City")
 
 
+@lru_cache(maxsize=20)
+def _read_parquet_with_cache(file_path: str, cache_key: str) -> pd.DataFrame:
+    """Cache LRU para parquets GBFS con invalidacion por minuto."""
+    return pd.read_parquet(file_path)
+
+
 class PredictorService:
     """Servicio para realizar predicciones de disponibilidad de bicicletas con XGBoost."""
 
@@ -176,10 +182,9 @@ class PredictorService:
         """Verifica si los modelos están cargados."""
         return self._models_loaded
 
-    @lru_cache(maxsize=10)
-    def _load_parquet_cached(self, file_path: str) -> pd.DataFrame:
-        """Cache LRU para parquets GBFS cargados recientemente."""
-        return pd.read_parquet(file_path)
+    def _load_parquet_cached(self, file_path: str, cache_key: str) -> pd.DataFrame:
+        """Wrapper para cache de parquets GBFS."""
+        return _read_parquet_with_cache(file_path, cache_key)
 
     def _load_gbfs_data(
         self, station_code: str, timestamp_utc: datetime
@@ -220,11 +225,14 @@ class PredictorService:
                 logger.warning(f"No se encontraron parquets GBFS para {station_code}")
                 return None, self.INSUFFICIENT_DATA
             
+            # Generar cache_key basado en minuto actual para invalidar cada 60 segundos
+            cache_key = timestamp_utc.strftime("%Y%m%d_%H%M")
+            
             # Leer parquets con cache
             dfs = []
             for file_path in parquet_files:
                 try:
-                    df = self._load_parquet_cached(file_path)
+                    df = self._load_parquet_cached(file_path, cache_key)
                     df = df[df["station_code"] == station_code]
                     if not df.empty:
                         dfs.append(df)
