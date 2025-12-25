@@ -195,6 +195,10 @@ class PredictorService:
             Tupla (diccionario con ocu y lags, código de salida)
         """
         try:
+            # Asegurar que timestamp_utc esté realmente en UTC
+            if timestamp_utc.tzinfo != timezone.utc:
+                timestamp_utc = timestamp_utc.astimezone(timezone.utc)
+            
             timestamp_cdmx = timestamp_utc.astimezone(CDMX_TZ)
             
             # Determinar archivos parquet necesarios
