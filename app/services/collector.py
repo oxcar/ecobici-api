@@ -48,11 +48,13 @@ class GBFSCollector:
     async def start(self) -> None:
         """Inicia el colector en segundo plano."""
         if self._running:
+            logger.info("Colector ya esta en ejecucion")
             return
 
         self._running = True
         self._http_client = httpx.AsyncClient(timeout=self._settings.gbfs_timeout)
         self._collect_task = asyncio.create_task(self._periodic_collect())
+        logger.info("Tarea de recoleccion periodica creada")
 
     async def stop(self) -> None:
         """Detiene el colector."""
@@ -72,6 +74,7 @@ class GBFSCollector:
 
     async def _periodic_collect(self) -> None:
         """Bucle principal de recoleccion sincronizado al minuto."""
+        logger.info("Iniciando bucle de recoleccion periodica")
         while self._running:
             try:
                 # Calcular segundos hasta el proximo minuto (segundo 0)
@@ -83,6 +86,7 @@ class GBFSCollector:
                     break
 
                 # Intentar capturar snapshot con reintentos
+                logger.debug("Iniciando recoleccion de snapshot")
                 await self._collect_with_retries()
 
             except asyncio.CancelledError:
@@ -96,8 +100,11 @@ class GBFSCollector:
             try:
                 df = await self._collect_snapshot()
                 if df is not None and not df.is_empty():
+                    logger.debug(f"Snapshot capturado: {len(df)} estaciones")
                     self._save_snapshot(df)
                     return
+                else:
+                    logger.warning(f"Snapshot vacio en intento {attempt + 1}/{max_retries}")
             except Exception as e:
                 if attempt < max_retries - 1:
                     # Esperar 5 segundos antes del siguiente intento
@@ -201,6 +208,7 @@ class GBFSCollector:
             df = df.sort(["station_code", "snapshot_time"])
 
         df.write_parquet(output_file)
+        logger.info(f"Snapshot guardado en {output_file}: {len(df)} registros")
 
         return output_file
 
