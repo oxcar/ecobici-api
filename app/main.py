@@ -4,8 +4,10 @@ Aplicacion principal FastAPI para prediccion de disponibilidad de bicicletas Eco
 
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import AsyncGenerator
 
+import pytz
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,10 +19,29 @@ from app.services.predictor import predictor_service
 from app.services.scheduler import shutdown_scheduler, start_scheduler
 from app.services.statistics import StatisticsMiddleware, statistics_service
 
-# Configurar logging
+
+class CDMXFormatter(logging.Formatter):
+    """Formatter que muestra timestamps en timezone de Ciudad de Mexico."""
+    
+    def __init__(self, fmt=None, datefmt=None):
+        super().__init__(fmt, datefmt)
+        self.tz = pytz.timezone("America/Mexico_City")
+    
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, self.tz)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+# Configurar logging con timezone CDMX
+handler = logging.StreamHandler()
+handler.setFormatter(CDMXFormatter(
+    fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+))
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[handler],
 )
 logger = logging.getLogger(__name__)
 
