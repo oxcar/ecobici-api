@@ -664,19 +664,24 @@ class PredictorService:
                 })
             except Exception as e:
                 logger.error(f"Error en prediccion {horizon}min: {e}")
+                fallback_bikes = int(np.round(ocu_actual * capacity))
+                fallback_bikes = max(0, min(fallback_bikes, capacity))
                 predictions.append({
                     "timestamp_utc": future_timestamp.astimezone(timezone.utc).isoformat(),
                     "horizon_minutes": horizon,
                     "occupancy_predicted": float(ocu_actual),
-                    "bikes_predicted": int(np.round(ocu_actual * capacity)),
+                    "bikes_predicted": fallback_bikes,
                 })
         
         # Construir respuesta
+        current_bikes = int(np.round(ocu_actual * capacity))
+        current_bikes = max(0, min(current_bikes, capacity))
+        
         result = {
             "current_state": {
                 "timestamp_utc": timestamp_utc.isoformat(),
                 "occupancy": float(ocu_actual),
-                "bikes_available": int(np.round(ocu_actual * capacity)),
+                "bikes_available": current_bikes,
                 "capacity": capacity,
                 "is_operating": bool(temporal_dict["is_operating"]),
             },
