@@ -14,6 +14,7 @@ import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.services.collector import gbfs_collector
 from app.services.gbfs import gbfs_service
 from app.services.history import history_service
 
@@ -21,6 +22,19 @@ logger = logging.getLogger(__name__)
 
 # Instancia del scheduler
 scheduler = AsyncIOScheduler()
+
+
+async def collect_gbfs_snapshot() -> None:
+    """
+    Recolecta un snapshot de datos GBFS.
+    
+    Esta tarea se ejecuta cada minuto para capturar el estado actual
+    de todas las estaciones de Ecobici.
+    """
+    try:
+        await gbfs_collector.collect_snapshot()
+    except Exception as e:
+        logger.error(f"Error al recolectar snapshot GBFS: {e}")
 
 
 async def precalculate_yesterday_data() -> None:
@@ -150,10 +164,22 @@ def start_scheduler() -> None:
     Inicia el scheduler de tareas programadas.
     
     Configura las siguientes tareas:
-    - 00:05 hrs: Precalcular datos del dia anterior
-    - 00:30 hrs: Precalcular promedios historicos
+    - Cada minuto: Recolectar snapshot GBFS
+    - 01:00 hrs: Precalcular datos del dia anterior
+    - 01:30 hrs: Precalcular promedios historicos
     """
     mexico_tz = pytz.timezone('America/Mexico_City')
+    utc_tz = pytz.UTC
+    
+    # Programar recoleccion GBFS cada minuto (UTC para precision)
+    scheduler.add_job(
+        collect_gbfs_snapshot,
+        CronTrigger(minute='*', timezone=utc_tz),
+        id="collect_gbfs",
+        name="Recolectar snapshot GBFS",
+        max_instances=1,
+        replace_existing=True,
+    )
     
     # Programar tarea de yesterday a las 01:00 hrs todos los dias
     scheduler.add_job(
@@ -174,7 +200,7 @@ def start_scheduler() -> None:
     )
     
     scheduler.start()
-    logger.info("Scheduler iniciado con zona horaria America/Mexico_City - Tareas: 00:05 (yesterday), 00:30 (averages)")
+    logger.info("Scheduler iniciado - Tareas: cada minuto (GBFS), 01:00 (yesterday), 01:30 (averages)")
 
 
 def shutdown_scheduler() -> None:

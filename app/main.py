@@ -71,12 +71,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await statistics_service.start_background_flush()
     logger.info(f"Servicio de estadisticas iniciado. Ruta: {settings.statistics_path}")
 
-    # Iniciar colector GBFS si esta habilitado
+    # Inicializar cliente HTTP del colector GBFS si esta habilitado
     logger.info(f"Configuracion collector: enabled={settings.gbfs_collector_enabled}")
     if settings.gbfs_collector_enabled:
         try:
             await gbfs_collector.start()
-            logger.info(f"Colector GBFS iniciado. Ruta: {settings.gbfs_snapshots_path}")
+            logger.info(f"Cliente HTTP del colector GBFS inicializado. Ruta: {settings.gbfs_snapshots_path}")
         except Exception as e:
             logger.error(f"Error al iniciar colector GBFS: {e}", exc_info=True)
     else:

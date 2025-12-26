@@ -28,8 +28,6 @@ class GBFSCollector:
 
     def __init__(self) -> None:
         self._settings = get_settings()
-        self._collect_task: Optional[asyncio.Task] = None
-        self._running = False
         self._http_client: Optional[httpx.AsyncClient] = None
 
         # URLs de los feeds GBFS
@@ -46,56 +44,20 @@ class GBFSCollector:
         return self._settings.gbfs_snapshots_path
 
     async def start(self) -> None:
-        """Inicia el colector en segundo plano."""
-        if self._running:
-            logger.info("Colector ya esta en ejecucion")
-            return
-
-        self._running = True
-        self._http_client = httpx.AsyncClient(timeout=self._settings.gbfs_timeout)
-        self._collect_task = asyncio.create_task(self._periodic_collect())
-        logger.info("Tarea de recoleccion periodica creada")
+        """Inicializa el cliente HTTP del colector."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=self._settings.gbfs_timeout)
+            logger.info("Cliente HTTP del colector GBFS inicializado")
 
     async def stop(self) -> None:
-        """Detiene el colector."""
-        self._running = False
-
-        if self._collect_task:
-            self._collect_task.cancel()
-            try:
-                await self._collect_task
-            except asyncio.CancelledError:
-                pass
-            self._collect_task = None
-
+        """Cierra el cliente HTTP del colector."""
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
+            logger.info("Cliente HTTP del colector GBFS cerrado")
 
-    async def _periodic_collect(self) -> None:
-        """Bucle principal de recoleccion sincronizado al minuto."""
-        logger.info("Iniciando bucle de recoleccion periodica")
-        while self._running:
-            try:
-                # Calcular segundos hasta el proximo minuto (segundo 0)
-                now = datetime.now(timezone.utc)
-                seconds_until_next_minute = 60 - now.second - now.microsecond / 1_000_000
-                await asyncio.sleep(seconds_until_next_minute)
-
-                if not self._running:
-                    break
-
-                # Intentar capturar snapshot con reintentos
-                logger.debug("Iniciando recoleccion de snapshot")
-                await self._collect_with_retries()
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error en bucle de recoleccion: {e}")
-
-    async def _collect_with_retries(self, max_retries: int = 3) -> None:
-        """Intenta capturar un snapshot con reintentos."""
+    async def collect_snapshot(self, max_retries: int = 3) -> None:
+        """Captura y guarda un snapshot del estado de las estaciones con reintentos."""
         for attempt in range(max_retries):
             try:
                 df = await self._collect_snapshot()
@@ -107,7 +69,6 @@ class GBFSCollector:
                     logger.warning(f"Snapshot vacio en intento {attempt + 1}/{max_retries}")
             except Exception as e:
                 if attempt < max_retries - 1:
-                    # Esperar 5 segundos antes del siguiente intento
                     await asyncio.sleep(5)
                 else:
                     logger.error(f"Error al capturar snapshot tras {max_retries} intentos: {e}")
@@ -126,7 +87,7 @@ class GBFSCollector:
 
     async def _collect_snapshot(self) -> Optional[pl.DataFrame]:
         """Captura un snapshot del estado de las estaciones."""
-        snapshot_time = datetime.now(timezone.utc)
+        snapshot_time = datetime.now(timezone.utc).replace(microsecond=0)
 
         # Obtener datos en paralelo
         info_data, status_data = await asyncio.gather(
